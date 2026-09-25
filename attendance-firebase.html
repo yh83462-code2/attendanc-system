@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>نظام الحضور</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --ink:#132a2e; --paper:#f6f3ea; --line:#132a2e; --accent:#c7622a;
+  --ok:#2f6b4f; --card:#ffffff;
+  padding-top: env(safe-area-inset-top,0px);
+  padding-bottom: env(safe-area-inset-bottom,0px);
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --ink:#eae6d9; --paper:#101615; --line:#eae6d9; --card:#171f1d; }
+}
+:root[data-theme="dark"]{ --ink:#eae6d9; --paper:#101615; --line:#eae6d9; --card:#171f1d; }
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:'Cairo',sans-serif; min-height:100%;
+  display:flex; flex-direction:column; align-items:center;
+}
+.screen{width:100%; max-width:480px; padding:28px 20px 40px; margin:0 auto;}
+h1{font-size:1.5rem; font-weight:800; margin:0 0 4px;}
+.sub{opacity:.7; margin:0 0 28px; font-size:.95rem;}
+.brand{display:flex; align-items:baseline; gap:8px; margin-bottom:2px;}
+.brand .mark{width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;}
+.choice-grid{display:flex; flex-direction:column; gap:14px; margin-top:10px;}
+.choice{
+  border:1.5px solid var(--line); border-radius:14px; padding:20px; text-align:right;
+  background:var(--card); cursor:pointer; font-family:inherit;
+}
+.choice b{display:block; font-size:1.15rem; margin-bottom:4px;}
+.choice span{opacity:.65; font-size:.9rem;}
+label{display:block; font-size:.85rem; opacity:.75; margin:14px 0 6px;}
+input, select{
+  width:100%; padding:13px 14px; border-radius:10px; border:1.5px solid var(--line);
+  background:var(--card); color:var(--ink); font-family:inherit; font-size:1rem;
+}
+button.primary{
+  margin-top:22px; width:100%; padding:14px; border-radius:10px; border:none;
+  background:var(--accent); color:#fff; font-family:inherit; font-weight:700; font-size:1rem; cursor:pointer;
+}
+button.ghost{
+  margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--line);
+  background:transparent; color:var(--ink); font-family:inherit; font-weight:600; font-size:.95rem; cursor:pointer;
+}
+button.link{background:none;border:none;color:var(--ink);opacity:.6;font-family:inherit;font-size:.85rem;cursor:pointer;padding:6px;}
+.hint{font-size:.8rem; opacity:.6; margin-top:6px;}
+.card{border:1.5px solid var(--line); border-radius:14px; padding:18px; background:var(--card); margin-top:16px;}
+.qrbox{display:flex; justify-content:center; padding:18px 0;}
+#reader{width:100%; border-radius:12px; overflow:hidden;}
+.status{display:flex; align-items:center; gap:8px; font-weight:700; font-size:.9rem;}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);}
+.dot.closed{background:#a33;}
+.row{display:flex; justify-content:space-between; align-items:center;}
+.attlist{margin-top:14px; display:flex; flex-direction:column; gap:8px; max-height:280px; overflow-y:auto;}
+.attitem{display:flex; justify-content:space-between; border-bottom:1px solid color-mix(in srgb, var(--line) 15%, transparent); padding:8px 2px; font-size:.9rem;}
+.attitem span:last-child{opacity:.55; font-size:.8rem;}
+.msg{padding:16px; border-radius:12px; text-align:center; font-weight:700;}
+.msg.ok{background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok);}
+.msg.err{background:color-mix(in srgb, #a33 15%, transparent); color:#a33;}
+.back{margin-bottom:18px;}
+</style>
+</head>
+<body>
+<div id="app" class="screen"></div>
+
+<script>
+/* ===== بيانات تجريبية: عدّل أكواد الأساتذة هنا ===== */
+const TEACHER_CODES = {
+  "1010": "د. أحمد الخالدي",
+  "2020": "د. سارة العبيدي",
+  "3030": "د. محمد جاسم"
+};
+
+/* =====================================================
+   إعدادات Firebase — عدّل القيم الخمس/الست هذي بعد ما
+   تسوي مشروعك على console.firebase.google.com
+   (Project settings → Add app → Web → firebaseConfig)
+   ===================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBx9-wyq8YqF13DiSLJDiUCZ2HB3ROL7I4",
+  authDomain: "ufc1-7d0e0.firebaseapp.com",
+  databaseURL: "https://ufc1-7d0e0-default-rtdb.firebaseio.com",
+  projectId: "ufc1-7d0e0",
+  storageBucket: "ufc1-7d0e0.firebasestorage.app",
+  messagingSenderId: "963055067329",
+  appId: "1:963055067329:web:fcb0f0d8c099ee0adab440"
+};
+/* ===================================================== */
+
+let db = null;
+let firebaseReady = firebaseConfig.apiKey !== "ضع_القيمة_هنا";
+if(firebaseReady){
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+}
+
+/* ===== طبقة الوصول لقاعدة البيانات (Firestore) ===== */
+const DB = {
+  async createSession(sid, teacherCode, teacherName){
+    await db.collection('sessions').doc(sid).set({
+      teacherCode, teacherName, status: 'open', createdAt: Date.now()
+    });
+  },
+  async getSession(sid){
+    const doc = await db.collection('sessions').doc(sid).get();
+    return doc.exists ? doc.data() : null;
+  },
+  async closeSession(sid){
+    await db.collection('sessions').doc(sid).update({ status: 'closed' });
+  },
+  async getOpenSessionByTeacher(code){
+    const snap = await db.collection('sessions')
+      .where('teacherCode','==',code).where('status','==','open').limit(1).get();
+    return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+  },
+  async addAttendance(sid, student){
+    const dup = await db.collection('sessions').doc(sid).collection('attendance')
+      .where('name','==',student.name).where('stage','==',student.stage).where('dept','==',student.dept)
+      .limit(1).get();
+    if(!dup.empty) return false;
+    await db.collection('sessions').doc(sid).collection('attendance').add({
+      ...student, time: new Date().toLocaleTimeString('ar-IQ'), ts: Date.now()
+    });
+    return true;
+  },
+  listenAttendance(sid, cb){
+    return db.collection('sessions').doc(sid).collection('attendance')
+      .orderBy('ts','asc').onSnapshot(snap => cb(snap.docs.map(d=>d.data())));
+  }
+};
+
+const app = document.getElementById('app');
+let scannerInstance = null;
+
+function render(html){
+  if(scannerInstance){ try{ scannerInstance.stop().catch(()=>{}); }catch(e){} scannerInstance=null; }
+  app.innerHTML = html;
+}
+
+/* ---------- الشاشة الرئيسية ---------- */
+function home(){
+  if(!firebaseReady){
+    render(`
+      <div class="brand"><span class="mark"></span><h1>نظام الحضور</h1></div>
+      <div class="msg err">لم يتم ربط قاعدة البيانات بعد.<br>عدّل قيم firebaseConfig في أعلى ملف الكود بمعلومات مشروعك على Firebase.</div>
+    `);
+    return;
+  }
+  render(`
+    <div class="brand"><span class="mark"></span><h1>نظام الحضور</h1></div>
+    <p class="sub">سجّل حضورك أو أدر محاضرتك</p>
+    <div class="choice-grid">
+      <button class="choice" onclick="studentInfoScreen()">
+        <b>طالب</b><span>تسجيل حضور محاضرة</span>
+      </button>
+      <button class="choice" onclick="teacherLoginScreen()">
+        <b>أستاذ</b><span>إنشاء وإدارة جلسة محاضرة</span>
+      </button>
+    </div>
+  `);
+}
+
+/* ---------- مسار الطالب ---------- */
+function studentInfoScreen(){
+  render(`
+    <button class="link back" onclick="home()">‹ رجوع</button>
+    <h1>بيانات الطالب</h1>
+    <p class="sub">تُدخل مرة واحدة قبل فتح الكامرة</p>
+    <label>الاسم الكامل</label>
+    <input id="s-name" placeholder="مثال: علي حسن محمد">
+    <label>المرحلة</label>
+    <input id="s-stage" placeholder="مثال: الثالثة">
+    <label>القسم</label>
+    <input id="s-dept" placeholder="مثال: هندسة البرمجيات">
+    <button class="primary" onclick="goToScan()">التالي: مسح الباركود</button>
+  `);
+}
+
+function goToScan(){
+  const name = document.getElementById('s-name').value.trim();
+  const stage = document.getElementById('s-stage').value.trim();
+  const dept = document.getElementById('s-dept').value.trim();
+  if(!name || !stage || !dept){ alert('الرجاء تعبئة جميع الحقول'); return; }
+  scanScreen({name, stage, dept});
+}
+
+function scanScreen(student){
+  render(`
+    <button class="link back" onclick="studentInfoScreen()">‹ رجوع</button>
+    <h1>مسح الباركود</h1>
+    <p class="sub">وجّه الكامرة نحو باركود المحاضرة</p>
+    <div id="reader"></div>
+    <div id="scan-result"></div>
+  `);
+  scannerInstance = new Html5Qrcode("reader");
+  scannerInstance.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 240 },
+    (decodedText) => {
+      scannerInstance.stop().then(()=> handleScan(decodedText, student)).catch(()=> handleScan(decodedText, student));
+    },
+    () => {}
+  ).catch(()=>{
+    document.getElementById('scan-result').innerHTML =
+      `<div class="msg err">تعذّر الوصول للكامرة. تأكد من منح إذن الكامرة للمتصفح.</div>`;
+  });
+}
+
+async function handleScan(payload, student){
+  let data;
+  try{ data = JSON.parse(payload); }catch(e){
+    return showScanMsg('err', 'باركود غير صالح لهذا النظام.');
+  }
+  showScanMsg('ok', 'جارِ التحقق...');
+  const session = await DB.getSession(data.sid);
+  if(!session){
+    return showScanMsg('err', 'الجلسة غير موجودة.');
+  }
+  if(session.status === 'closed'){
+    return showScanMsg('err', 'انتهت هذه الجلسة، لا يمكن تسجيل الحضور.');
+  }
+  const added = await DB.addAttendance(data.sid, student);
+  if(!added){
+    return showScanMsg('err', 'أنت مسجّل حضورك مسبقاً في هذه المحاضرة.');
+  }
+  showScanMsg('ok', `تم تسجيل حضورك بنجاح — محاضرة ${session.teacherName}`);
+}
+
+function showScanMsg(kind, text){
+  document.getElementById('scan-result').innerHTML =
+    `<div class="msg ${kind}">${text}</div>
+     <button class="ghost" onclick="home()">العودة للرئيسية</button>`;
+}
+
+/* ---------- مسار الأستاذ ---------- */
+function teacherLoginScreen(){
+  render(`
+    <button class="link back" onclick="home()">‹ رجوع</button>
+    <h1>دخول الأستاذ</h1>
+    <p class="sub">أدخل الرمز الخاص بك</p>
+    <label>رمز الدخول</label>
+    <input id="t-code" type="password" inputmode="numeric" placeholder="••••">
+    <button class="primary" onclick="teacherLogin()">دخول</button>
+    <p class="hint">رموز تجريبية: 1010 / 2020 / 3030</p>
+  `);
+}
+
+function teacherLogin(){
+  const code = document.getElementById('t-code').value.trim();
+  const name = TEACHER_CODES[code];
+  if(!name){ alert('رمز غير صحيح'); return; }
+  teacherHome(code, name);
+}
+
+async function teacherHome(code, name){
+  render(`
+    <button class="link back" onclick="home()">‹ خروج</button>
+    <h1>مرحباً، ${name}</h1>
+    <p class="sub">أنشئ جلسة محاضرة جديدة</p>
+    <button class="primary" onclick="createSession('${code}', '${name.replace(/'/g,"")}')">بدء محاضرة جديدة</button>
+    <div id="existing-session"></div>
+  `);
+  const mine = await DB.getOpenSessionByTeacher(code);
+  const holder = document.getElementById('existing-session');
+  if(mine && holder){
+    holder.innerHTML = `<div class="card"><b>لديك جلسة مفتوحة</b>
+      <button class="ghost" onclick="sessionScreen('${mine.id}')">فتح الجلسة الحالية</button></div>`;
+  }
+}
+
+async function createSession(code, name){
+  const sid = 'S' + Date.now().toString(36).toUpperCase();
+  await DB.createSession(sid, code, name);
+  sessionScreen(sid);
+}
+
+async function sessionScreen(sid){
+  const session = await DB.getSession(sid);
+  render(`
+    <button class="link back" onclick="teacherHome('${session.teacherCode}', '${session.teacherName.replace(/'/g,"")}')">‹ رجوع</button>
+    <h1>${session.teacherName}</h1>
+    <div class="row">
+      <div class="status"><span class="dot ${session.status==='closed'?'closed':''}"></span>${session.status==='closed'?'الجلسة مغلقة':'الجلسة مفتوحة'}</div>
+    </div>
+    <div class="card qrbox" id="qr-holder"></div>
+    <button class="ghost" onclick="closeSession('${sid}')" ${session.status==='closed'?'disabled':''}>إغلاق الجلسة</button>
+    <div class="card">
+      <b>الحضور (<span id="att-count">0</span>)</b>
+      <div class="attlist" id="att-list"></div>
+    </div>
+  `);
+  new QRCode(document.getElementById('qr-holder'), {
+    text: JSON.stringify({sid}),
+    width: 200, height: 200
+  });
+  window._attUnsub && window._attUnsub();
+  window._attUnsub = DB.listenAttendance(sid, list => {
+    const countEl = document.getElementById('att-count');
+    const listEl = document.getElementById('att-list');
+    if(!countEl || !listEl) return;
+    countEl.textContent = list.length;
+    listEl.innerHTML = list.map(s => `<div class="attitem"><span>${s.name} — ${s.stage} / ${s.dept}</span><span>${s.time}</span></div>`).join('') || '<div class="hint">لا يوجد حضور بعد</div>';
+  });
+}
+
+async function closeSession(sid){
+  await DB.closeSession(sid);
+  window._attUnsub && window._attUnsub();
+  sessionScreen(sid);
+}
+
+home();
+</script>
+</body>
+</html>
